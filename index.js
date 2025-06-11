@@ -28,13 +28,17 @@ async function downloadFile(url, destPath) {
   return destPath;
 }
 
+// ✨ Wrap long text for FFmpeg safety
 function escapeFFmpegText(text) {
-  return String(text || "")
+  const clean = String(text || "")
     .replace(/\\/g, "\\\\")
     .replace(/:/g, "\\:")
     .replace(/'/g, "\\'")
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "");
+    .replace(/\r/g, "")
+    .replace(/\n/g, " ")
+    .slice(0, 200); // ✅ Limit length
+
+  return clean.replace(/(.{1,50})(\s|$)/g, "$1\\n").trim(); // ✅ Word wrap
 }
 
 app.post("/export-video", async (req, res) => {
