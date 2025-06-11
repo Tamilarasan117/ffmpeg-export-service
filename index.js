@@ -7,18 +7,16 @@ import { v4 as uuidv4 } from "uuid";
 import fetch from "node-fetch";
 import dotenv from "dotenv";
 
-dotenv.config(); // Load .env file
+dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL || "";
 
-// ✅ Health check route
 app.get("/", (req, res) => {
   res.send("✅ FFmpeg Export Service is live!");
 });
 
-// ✅ CORS and body parser
 app.use(cors({ origin: "*" }));
 app.use(express.json());
 
@@ -52,7 +50,17 @@ app.post("/export-video", async (req, res) => {
 
     const imageFiles = await Promise.all(
       imageList.map(async (imgUrl, i) => {
-        const absoluteUrl = new URL(imgUrl, BASE_IMAGE_URL).href;
+        let absoluteUrl;
+        try {
+          absoluteUrl = imgUrl.startsWith("http")
+            ? imgUrl
+            : new URL(imgUrl, BASE_IMAGE_URL || "http://localhost").href;
+        } catch (err) {
+          throw new Error(`Invalid image URL: ${imgUrl}`);
+        }
+
+        console.log("📸 Downloading image:", absoluteUrl);
+
         const ext = path.extname(new URL(absoluteUrl).pathname) || ".jpg";
         const filePath = path.join(tempDir, `image_${i}${ext}`);
         await downloadFile(absoluteUrl, filePath);
@@ -60,7 +68,17 @@ app.post("/export-video", async (req, res) => {
       })
     );
 
-    const audioAbsUrl = new URL(audioFileUrl, BASE_IMAGE_URL).href;
+    let audioAbsUrl;
+    try {
+      audioAbsUrl = audioFileUrl.startsWith("http")
+        ? audioFileUrl
+        : new URL(audioFileUrl, BASE_IMAGE_URL || "http://localhost").href;
+    } catch (err) {
+      throw new Error(`Invalid audio URL: ${audioFileUrl}`);
+    }
+
+    console.log("🎧 Downloading audio:", audioAbsUrl);
+
     const audioExt = path.extname(new URL(audioAbsUrl).pathname) || ".mp3";
     const audioFilePath = path.join(tempDir, `audio${audioExt}`);
     await downloadFile(audioAbsUrl, audioFilePath);
@@ -72,6 +90,8 @@ app.post("/export-video", async (req, res) => {
     for (let i = 0; i < imageFiles.length; i++) {
       const text = escapeFFmpegText(script[i]?.ContentText || "");
       const outputVideo = path.join(tempDir, `video_${i}.mp4`);
+
+      console.log(`🎞️ Generating segment ${i + 1}/${imageFiles.length}`);
 
       await new Promise((resolve, reject) => {
         ffmpeg()
@@ -95,6 +115,7 @@ app.post("/export-video", async (req, res) => {
     const tempConcatPath = path.join(tempDir, `concat_${uuidv4()}.mp4`);
     const finalOutputPath = path.join(tempDir, `output_${uuidv4()}.mp4`);
 
+    console.log("🔗 Concatenating segments...");
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(filelistPath)
@@ -106,6 +127,7 @@ app.post("/export-video", async (req, res) => {
         .on("error", reject);
     });
 
+    console.log("🎼 Merging with audio...");
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(tempConcatPath)
@@ -123,12 +145,11 @@ app.post("/export-video", async (req, res) => {
 
     res.json({ result: `data:video/mp4;base64,${base64}` });
   } catch (error) {
-    console.error("Export video error:", error);
+    console.error("🚨 Export video error:", error);
     res.status(500).json({ error: "Export failed", details: error.message });
   }
 });
 
-// ✅ Start the server
 app.listen(PORT, () => {
   console.log(`✅ FFmpeg Export Service running at: http://localhost:${PORT}`);
 });
