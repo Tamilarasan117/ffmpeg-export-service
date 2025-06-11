@@ -52,7 +52,7 @@ app.post("/export-video", async (req, res) => {
 
     const imageFiles = await Promise.all(
       imageList.map(async (imgUrl, i) => {
-        const absoluteUrl = imgUrl.startsWith("http") ? imgUrl : new URL(imgUrl, BASE_IMAGE_URL).href;
+        const absoluteUrl = new URL(imgUrl, BASE_IMAGE_URL).href;
         const ext = path.extname(new URL(absoluteUrl).pathname) || ".jpg";
         const filePath = path.join(tempDir, `image_${i}${ext}`);
         await downloadFile(absoluteUrl, filePath);
@@ -60,7 +60,7 @@ app.post("/export-video", async (req, res) => {
       })
     );
 
-    const audioAbsUrl = audioFileUrl.startsWith("http") ? audioFileUrl : new URL(audioFileUrl, BASE_IMAGE_URL).href;
+    const audioAbsUrl = new URL(audioFileUrl, BASE_IMAGE_URL).href;
     const audioExt = path.extname(new URL(audioAbsUrl).pathname) || ".mp3";
     const audioFilePath = path.join(tempDir, `audio${audioExt}`);
     await downloadFile(audioAbsUrl, audioFilePath);
