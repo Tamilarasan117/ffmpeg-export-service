@@ -10,10 +10,10 @@ import dotenv from "dotenv";
 dotenv.config(); // Load .env file
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT;
 const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL;
 
-app.use(cors({ origin: "*" }));
+app.use(cors({ origin: ["http://localhost:3000", "https://ai-vision-craft-generator.onrender.com"] }));
 app.use(express.json());
 
 async function downloadFile(url, destPath) {
