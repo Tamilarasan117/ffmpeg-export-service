@@ -10,10 +10,16 @@ import dotenv from "dotenv";
 dotenv.config(); // Load .env file
 
 const app = express();
-const PORT = process.env.PORT;
-const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL;
+const PORT = process.env.PORT || 10000;
+const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL || "";
 
-app.use(cors({ origin: ["http://localhost:3000", "https://ai-vision-craft-generator.onrender.com"] }));
+// ✅ Health check route
+app.get("/", (req, res) => {
+  res.send("✅ FFmpeg Export Service is live!");
+});
+
+// ✅ CORS and body parser
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
 async function downloadFile(url, destPath) {
@@ -122,6 +128,7 @@ app.post("/export-video", async (req, res) => {
   }
 });
 
+// ✅ Start the server
 app.listen(PORT, () => {
   console.log(`✅ FFmpeg Export Service running at: http://localhost:${PORT}`);
 });
