@@ -5,9 +5,13 @@ import path from "path";
 import fs from "fs/promises";
 import { v4 as uuidv4 } from "uuid";
 import fetch from "node-fetch";
+import dotenv from "dotenv";
+
+dotenv.config(); // Load .env file
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL || "https://ai-vision-craft-generator.onrender.com";
 
 app.use(cors({ origin: "*" }));
 app.use(express.json());
@@ -33,7 +37,7 @@ app.post("/export-video", async (req, res) => {
   try {
     const { imageList, audioFileUrl, script } = req.body;
 
-    if (!Array.isArray(imageList) || !imageList.length || !audioFileUrl || !script) {
+    if (!Array.isArray(imageList) || !imageList.length || !audioFileUrl || !script || !Array.isArray(script)) {
       return res.status(400).json({ error: "Invalid input data" });
     }
 
@@ -41,17 +45,19 @@ app.post("/export-video", async (req, res) => {
     await fs.mkdir(tempDir, { recursive: true });
 
     const imageFiles = await Promise.all(
-      imageList.map(async (url, i) => {
-        const ext = path.extname(new URL(url).pathname) || ".jpg";
+      imageList.map(async (imgUrl, i) => {
+        const absoluteUrl = new URL(imgUrl, BASE_IMAGE_URL).href;
+        const ext = path.extname(new URL(absoluteUrl).pathname) || ".jpg";
         const filePath = path.join(tempDir, `image_${i}${ext}`);
-        await downloadFile(url, filePath);
+        await downloadFile(absoluteUrl, filePath);
         return filePath;
       })
     );
 
-    const audioExt = path.extname(new URL(audioFileUrl).pathname) || ".mp3";
+    const audioAbsUrl = new URL(audioFileUrl, BASE_IMAGE_URL).href;
+    const audioExt = path.extname(new URL(audioAbsUrl).pathname) || ".mp3";
     const audioFilePath = path.join(tempDir, `audio${audioExt}`);
-    await downloadFile(audioFileUrl, audioFilePath);
+    await downloadFile(audioAbsUrl, audioFilePath);
 
     const fontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf";
     const durationPerImage = 5;
