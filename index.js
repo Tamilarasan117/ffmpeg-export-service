@@ -7,12 +7,11 @@ import { v4 as uuidv4 } from "uuid";
 import fetch from "node-fetch";
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-
 const PORT = process.env.PORT || 3001;
 
-// Utility Functions
+app.use(cors({ origin: "*" }));
+app.use(express.json());
+
 async function downloadFile(url, destPath) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to download ${url}: ${res.statusText}`);
@@ -30,30 +29,25 @@ function escapeFFmpegText(text) {
     .replace(/\r/g, "");
 }
 
-// POST /export-video
 app.post("/export-video", async (req, res) => {
   try {
     const { imageList, audioFileUrl, script } = req.body;
 
-    if (
-      !Array.isArray(imageList) ||
-      imageList.length === 0 ||
-      !audioFileUrl ||
-      !script
-    ) {
+    if (!Array.isArray(imageList) || !imageList.length || !audioFileUrl || !script) {
       return res.status(400).json({ error: "Invalid input data" });
     }
 
     const tempDir = path.join("/tmp", uuidv4());
     await fs.mkdir(tempDir, { recursive: true });
 
-    const imageFiles = [];
-    for (let i = 0; i < imageList.length; i++) {
-      const ext = path.extname(new URL(imageList[i]).pathname) || ".jpg";
-      const filePath = path.join(tempDir, `image_${i}${ext}`);
-      await downloadFile(imageList[i], filePath);
-      imageFiles.push(filePath);
-    }
+    const imageFiles = await Promise.all(
+      imageList.map(async (url, i) => {
+        const ext = path.extname(new URL(url).pathname) || ".jpg";
+        const filePath = path.join(tempDir, `image_${i}${ext}`);
+        await downloadFile(url, filePath);
+        return filePath;
+      })
+    );
 
     const audioExt = path.extname(new URL(audioFileUrl).pathname) || ".mp3";
     const audioFilePath = path.join(tempDir, `audio${audioExt}`);
@@ -64,13 +58,12 @@ app.post("/export-video", async (req, res) => {
     const videoSegments = [];
 
     for (let i = 0; i < imageFiles.length; i++) {
-      const image = imageFiles[i];
       const text = escapeFFmpegText(script[i]?.ContentText || "");
       const outputVideo = path.join(tempDir, `video_${i}.mp4`);
 
       await new Promise((resolve, reject) => {
         ffmpeg()
-          .input(image)
+          .input(imageFiles[i])
           .loop(durationPerImage)
           .videoFilter(
             `drawtext=fontfile='${fontPath}':text='${text}':fontcolor=white:fontsize=24:box=1:boxcolor=0x00000099:boxborderw=5:x=(w-text_w)/2:y=h-60`
@@ -85,8 +78,7 @@ app.post("/export-video", async (req, res) => {
     }
 
     const filelistPath = path.join(tempDir, "filelist.txt");
-    const concatText = videoSegments.map((v) => `file '${v}'`).join("\n");
-    await fs.writeFile(filelistPath, concatText);
+    await fs.writeFile(filelistPath, videoSegments.map(v => `file '${v}'`).join("\n"));
 
     const tempConcatPath = path.join(tempDir, `concat_${uuidv4()}.mp4`);
     const finalOutputPath = path.join(tempDir, `output_${uuidv4()}.mp4`);
@@ -114,6 +106,7 @@ app.post("/export-video", async (req, res) => {
 
     const fileBuffer = await fs.readFile(finalOutputPath);
     const base64 = fileBuffer.toString("base64");
+
     await fs.rm(tempDir, { recursive: true, force: true });
 
     res.json({ result: `data:video/mp4;base64,${base64}` });
@@ -123,7 +116,6 @@ app.post("/export-video", async (req, res) => {
   }
 });
 
-// Start server
 app.listen(PORT, () => {
-  console.log(`FFmpeg Export Service running at http://localhost:${PORT}`);
+  console.log(`✅ FFmpeg Export Service running at: http://localhost:${PORT}`);
 });
