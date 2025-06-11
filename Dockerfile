@@ -1,24 +1,25 @@
-# Use a base image that has FFmpeg
-FROM jrottenberg/ffmpeg:4.4-ubuntu
+# Use official Node.js LTS image
+FROM node:18
 
-# Install Node.js and npm
+# Install FFmpeg
 RUN apt-get update && \
-    apt-get install -y curl gnupg && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y nodejs && \
-    npm install -g npm
+    apt-get install -y ffmpeg && \
+    apt-get clean
 
 # Set working directory
 WORKDIR /app
 
-# Copy all project files
-COPY . .
+# Copy package files
+COPY package*.json ./
 
 # Install dependencies
 RUN npm install
 
-# Expose the port your app runs on
+# Copy the rest of the application
+COPY . .
+
+# Expose port (match the port in index.js)
 EXPOSE 3001
 
-# Start the Node.js server
+# Run the app
 CMD ["node", "index.js"]
