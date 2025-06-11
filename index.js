@@ -13,12 +13,12 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const BASE_IMAGE_URL = process.env.BASE_IMAGE_URL || "";
 
+app.use(cors({ origin: "*" }));
+app.use(express.json());
+
 app.get("/", (req, res) => {
   res.send("✅ FFmpeg Export Service is live!");
 });
-
-app.use(cors({ origin: "*" }));
-app.use(express.json());
 
 async function downloadFile(url, destPath) {
   const res = await fetch(url);
@@ -28,24 +28,21 @@ async function downloadFile(url, destPath) {
   return destPath;
 }
 
-// ✨ Wrap long text for FFmpeg safety
 function escapeFFmpegText(text) {
-  const clean = String(text || "")
+  return String(text || "")
+    .replace(/'/g, "\\\\'")
+    .replace(/:/g, "\\\\:")
     .replace(/\\/g, "\\\\")
-    .replace(/:/g, "\\:")
-    .replace(/'/g, "\\'")
-    .replace(/\r/g, "")
-    .replace(/\n/g, " ")
-    .slice(0, 200); // ✅ Limit length
-
-  return clean.replace(/(.{1,50})(\s|$)/g, "$1\\n").trim(); // ✅ Word wrap
+    .replace(/\r?\n/g, " ")
+    .replace(/(.{1,50})(\s|$)/g, "$1\\n")
+    .slice(0, 500); // safe limit
 }
 
 app.post("/export-video", async (req, res) => {
   try {
     const { imageList, audioFileUrl, script } = req.body;
 
-    if (!Array.isArray(imageList) || !imageList.length || !audioFileUrl || !script || !Array.isArray(script)) {
+    if (!Array.isArray(imageList) || !imageList.length || !audioFileUrl || !Array.isArray(script)) {
       return res.status(400).json({ error: "Invalid input data" });
     }
 
@@ -54,16 +51,9 @@ app.post("/export-video", async (req, res) => {
 
     const imageFiles = await Promise.all(
       imageList.map(async (imgUrl, i) => {
-        let absoluteUrl;
-        try {
-          absoluteUrl = imgUrl.startsWith("http")
-            ? imgUrl
-            : new URL(imgUrl, BASE_IMAGE_URL || "http://localhost").href;
-        } catch (err) {
-          throw new Error(`Invalid image URL: ${imgUrl}`);
-        }
-
-        console.log("📸 Downloading image:", absoluteUrl);
+        const absoluteUrl = imgUrl.startsWith("http")
+          ? imgUrl
+          : new URL(imgUrl, BASE_IMAGE_URL).href;
 
         const ext = path.extname(new URL(absoluteUrl).pathname) || ".jpg";
         const filePath = path.join(tempDir, `image_${i}${ext}`);
@@ -72,16 +62,9 @@ app.post("/export-video", async (req, res) => {
       })
     );
 
-    let audioAbsUrl;
-    try {
-      audioAbsUrl = audioFileUrl.startsWith("http")
-        ? audioFileUrl
-        : new URL(audioFileUrl, BASE_IMAGE_URL || "http://localhost").href;
-    } catch (err) {
-      throw new Error(`Invalid audio URL: ${audioFileUrl}`);
-    }
-
-    console.log("🎧 Downloading audio:", audioAbsUrl);
+    const audioAbsUrl = audioFileUrl.startsWith("http")
+      ? audioFileUrl
+      : new URL(audioFileUrl, BASE_IMAGE_URL).href;
 
     const audioExt = path.extname(new URL(audioAbsUrl).pathname) || ".mp3";
     const audioFilePath = path.join(tempDir, `audio${audioExt}`);
@@ -98,16 +81,33 @@ app.post("/export-video", async (req, res) => {
       console.log(`🎞️ Generating segment ${i + 1}/${imageFiles.length}`);
 
       await new Promise((resolve, reject) => {
-        ffmpeg()
-          .input(imageFiles[i])
+        ffmpeg(imageFiles[i])
           .loop(durationPerImage)
-          .videoFilter(
-            `drawtext=fontfile='${fontPath}':text='${text}':fontcolor=white:fontsize=24:box=1:boxcolor=0x00000099:boxborderw=5:x=(w-text_w)/2:y=h-60`
-          )
-          .outputOptions(["-t", `${durationPerImage}`, "-r 30", "-pix_fmt yuv420p"])
-          .save(outputVideo)
+          .videoFilters([
+            {
+              filter: "drawtext",
+              options: {
+                fontfile: fontPath,
+                text,
+                fontsize: 24,
+                fontcolor: "white",
+                box: 1,
+                boxcolor: "black@0.5",
+                boxborderw: 5,
+                x: "(w-text_w)/2",
+                y: "h-60",
+                line_spacing: 5,
+                enable: "between(t,0,5)"
+              }
+            }
+          ])
+          .outputOptions(["-t", `${durationPerImage}`, "-r", "30", "-pix_fmt", "yuv420p"])
           .on("end", resolve)
-          .on("error", reject);
+          .on("error", (err) => {
+            console.error("⚠️ FFmpeg drawtext error:", err.message);
+            reject(err);
+          })
+          .save(outputVideo);
       });
 
       videoSegments.push(outputVideo);
@@ -123,12 +123,12 @@ app.post("/export-video", async (req, res) => {
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(filelistPath)
-        .inputOptions(["-f concat", "-safe 0"])
+        .inputOptions(["-f", "concat", "-safe", "0"])
         .videoCodec("libx264")
-        .outputOptions(["-pix_fmt yuv420p", "-r 30"])
-        .save(tempConcatPath)
+        .outputOptions(["-pix_fmt", "yuv420p", "-r", "30"])
         .on("end", resolve)
-        .on("error", reject);
+        .on("error", reject)
+        .save(tempConcatPath);
     });
 
     console.log("🎼 Merging with audio...");
@@ -136,10 +136,10 @@ app.post("/export-video", async (req, res) => {
       ffmpeg()
         .input(tempConcatPath)
         .input(audioFilePath)
-        .outputOptions(["-c:v copy", "-c:a aac", "-shortest"])
-        .save(finalOutputPath)
+        .outputOptions(["-c:v", "copy", "-c:a", "aac", "-shortest"])
         .on("end", resolve)
-        .on("error", reject);
+        .on("error", reject)
+        .save(finalOutputPath);
     });
 
     const fileBuffer = await fs.readFile(finalOutputPath);
